@@ -4,34 +4,33 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 import plotly.express as px
 import missingno as msno
-import io
 
-st.set_page_config(page_title="📊 Dynamic CSV Analyzer", layout="wide")
-st.title("📊 Dynamic CSV Data Analyzer")
+st.set_page_config(page_title="📊 Dynamic Data Analyzer", layout="wide")
+st.title("📊 Dynamic CSV / Parquet Data Analyzer")
 
-uploaded_file = st.file_uploader("📂 Upload a CSV file", type=["csv"])
-
-
-# Caching expensive operations
-@st.cache_data
-def load_data(file):
-    df = pd.read_csv(file)
-    # Convert datetime-like columns
-    for col in df.select_dtypes(include='object').columns:
-        try:
-            if pd.to_datetime(df[col], errors='coerce').notna().sum() > 0.9 * len(df):
-                df[col] = pd.to_datetime(df[col])
-        except:
-            continue
-    return df
-
+uploaded_file = st.file_uploader("📂 Upload a CSV or Parquet file", type=["csv", "parquet"])
 
 if uploaded_file:
     try:
-        df = load_data(uploaded_file)
+        # Load the file based on extension
+        if uploaded_file.name.endswith('.csv'):
+            df = pd.read_csv(uploaded_file)
+        elif uploaded_file.name.endswith('.parquet'):
+            df = pd.read_parquet(uploaded_file)
+        else:
+            st.error("Unsupported file format.")
+            st.stop()
+
+        # Try converting datetime-like columns
+        for col in df.select_dtypes(include='object').columns:
+            try:
+                if pd.to_datetime(df[col], errors='coerce').notna().sum() > 0.9 * len(df):
+                    df[col] = pd.to_datetime(df[col])
+            except:
+                continue
 
         if df.empty:
-            st.error("❌ Uploaded CSV is empty.")
+            st.error("❌ Uploaded file is empty.")
             st.stop()
 
         st.subheader("📄 Dataset Overview")
@@ -47,64 +46,70 @@ if uploaded_file:
         num_cols = df.select_dtypes(include=['int64', 'float64']).columns
         cat_cols = df.select_dtypes(include=['object', 'category']).columns
 
-        if len(num_cols) >= 2:
-            st.subheader("🔗 Correlation Heatmap")
-            fig, ax = plt.subplots(figsize=(10, 6))
-            sns.heatmap(df[num_cols].corr(), annot=True, cmap="coolwarm", ax=ax)
-            st.pyplot(fig)
+        if st.checkbox("🔗 Show Correlation Heatmap"):
+            if len(num_cols) >= 2:
+                fig, ax = plt.subplots(figsize=(10, 6))
+                sns.heatmap(df[num_cols].corr(), annot=True, cmap="coolwarm", ax=ax)
+                st.pyplot(fig)
+            else:
+                st.info("Not enough numerical columns to compute correlation.")
 
-        if df.isnull().values.any():
-            st.subheader("🚨 Missing Values Heatmap")
-            fig, ax = plt.subplots(figsize=(10, 4))
-            msno.heatmap(df, ax=ax)
-            st.pyplot(fig)
+        if st.checkbox("🚨 Show Missing Values Heatmap"):
+            if df.isnull().values.any():
+                fig, ax = plt.subplots(figsize=(10, 4))
+                msno.heatmap(df, ax=ax)
+                st.pyplot(fig)
+            else:
+                st.info("No missing values to display.")
 
-        # Expanders for optional visualizations
-        with st.expander("📈 Distribution Plots (Numerical Columns)"):
+        if st.checkbox("📈 Show Distribution Plots"):
             for col in num_cols:
+                st.markdown(f"**Distribution of `{col}`**")
                 fig, ax = plt.subplots()
                 sns.histplot(df[col].dropna(), kde=True, ax=ax)
-                ax.set_title(f'Distribution of {col}')
                 st.pyplot(fig)
 
-        with st.expander("📦 Box Plots (Numerical Columns)"):
+        if st.checkbox("📦 Show Box Plots"):
             for col in num_cols:
+                st.markdown(f"**Box Plot of `{col}`**")
                 fig, ax = plt.subplots()
                 sns.boxplot(x=df[col], ax=ax)
-                ax.set_title(f'Box Plot of {col}')
                 st.pyplot(fig)
 
-        with st.expander("🎻 Violin Plots (Numerical Columns)"):
+        if st.checkbox("🎻 Show Violin Plots"):
             for col in num_cols:
+                st.markdown(f"**Violin Plot of `{col}`**")
                 fig, ax = plt.subplots()
                 sns.violinplot(x=df[col], ax=ax)
-                ax.set_title(f'Violin Plot of {col}')
                 st.pyplot(fig)
 
-        with st.expander("🧮 Count Plots (Top 10 Categories per Column)"):
+        if st.checkbox("🧮 Show Count Plots (Top Categories)"):
             for col in cat_cols:
+                st.markdown(f"**Top Categories in `{col}`**")
                 fig, ax = plt.subplots()
                 df[col].value_counts().head(10).plot(kind='bar', ax=ax)
-                ax.set_title(f'Count Plot of {col}')
                 plt.xticks(rotation=45)
                 st.pyplot(fig)
 
-        if len(num_cols) >= 2 and len(num_cols) <= 10:
-            st.subheader("🌐 Interactive Scatter Matrix (Plotly)")
-            fig = px.scatter_matrix(df[num_cols])
-            st.plotly_chart(fig, use_container_width=True)
+        if st.checkbox("🌐 Show Interactive Scatter Matrix"):
+            if 2 <= len(num_cols) <= 10:
+                fig = px.scatter_matrix(df[num_cols])
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.info("Need 2–10 numerical columns for scatter matrix.")
 
-        if len(num_cols) >= 2 and df.shape[0] < 5000:
-            with st.expander("🔍 Pairplot (First 4 Numerical Columns)"):
-                st.info("Pairplot may take a few seconds to load.")
+        if st.checkbox("🔍 Show Pairplot (first 4 numerical columns)"):
+            if len(num_cols) >= 2 and df.shape[0] <= 5000:
                 fig = sns.pairplot(df[num_cols[:4]].dropna())
                 st.pyplot(fig)
-        elif df.shape[0] >= 5000:
-            st.warning("Skipping pairplot – dataset too large for performance.")
+            elif df.shape[0] > 5000:
+                st.warning("Dataset too large for pairplot (limit: 5000 rows).")
+            else:
+                st.info("Not enough numerical columns.")
 
         st.success("✅ Analysis Completed Successfully!")
 
     except Exception as e:
         st.error(f"❌ Error loading file: {e}")
 else:
-    st.info("Please upload a CSV file to begin analysis.")
+    st.info("Please upload a CSV or Parquet file to begin analysis.")
