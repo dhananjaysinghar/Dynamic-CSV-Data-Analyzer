@@ -11,6 +11,7 @@ st.title("📊 Dynamic CSV Data Analyzer")
 
 uploaded_file = st.file_uploader("📂 Upload a CSV file", type=["csv"])
 
+
 # Caching expensive operations
 @st.cache_data
 def load_data(file):
@@ -23,6 +24,7 @@ def load_data(file):
         except:
             continue
     return df
+
 
 if uploaded_file:
     try:
